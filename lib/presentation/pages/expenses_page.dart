@@ -1,5 +1,8 @@
 // lib/presentation/pages/expenses_page.dart
 import 'package:collection/collection.dart';
+import 'package:expanse_tracker/presentation/bloc/expense/filter_bloc.dart';
+import 'package:expanse_tracker/presentation/bloc/expense/filter_event.dart';
+import 'package:expanse_tracker/presentation/bloc/expense/filter_state.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_gen/gen_l10n/app_localizations.dart';
@@ -16,20 +19,26 @@ import '../bloc/expense/expense_state.dart';
 import '../widgets/expense_list_item.dart';
 import 'add_edit_expense_page.dart';
 
-class ExpensesPage extends StatefulWidget {
-  const ExpensesPage({Key? key}) : super(key: key);
+class ExpensesPage extends StatelessWidget {
+  const ExpensesPage({super.key});
 
   @override
-  State<ExpensesPage> createState() => _ExpensesPageState();
+  Widget build(BuildContext context) {
+    return BlocProvider(
+      create: (context) => FilterBloc(),
+      child: const _ExpensesView(),
+    );
+  }
 }
 
-class _ExpensesPageState extends State<ExpensesPage> {
-  DateTime _startDate = DateTimeUtils.getStartOfMonth(DateTime.now());
-  DateTime _endDate = DateTimeUtils.getEndOfMonth(DateTime.now());
-  String? _selectedCategoryId;
-  String _sortBy = 'date'; // 'date', 'amount', 'category'
-  bool _sortAscending = false;
+class _ExpensesView extends StatefulWidget {
+  const _ExpensesView();
 
+  @override
+  State<_ExpensesView> createState() => _ExpensesViewState();
+}
+
+class _ExpensesViewState extends State<_ExpensesView> {
   @override
   void initState() {
     super.initState();
@@ -45,15 +54,17 @@ class _ExpensesPageState extends State<ExpensesPage> {
   }
 
   void _loadExpenses() {
-    if (_selectedCategoryId != null) {
+    final filterState = context.read<FilterBloc>().state;
+
+    if (filterState.selectedCategoryId != null) {
       context.read<ExpenseBloc>().add(
-            GetExpensesByCategoryEvent(_selectedCategoryId!),
+            GetExpensesByCategoryEvent(filterState.selectedCategoryId!),
           );
     } else {
       context.read<ExpenseBloc>().add(
             GetExpensesByDateRangeEvent(
-              start: _startDate,
-              end: _endDate,
+              start: filterState.startDate,
+              end: filterState.endDate,
             ),
           );
     }
@@ -61,126 +72,137 @@ class _ExpensesPageState extends State<ExpensesPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      children: [
-        _buildFilterBar(),
-        Expanded(
-          child: BlocBuilder<ExpenseBloc, ExpenseState>(
-            builder: (context, state) {
-              if (state is ExpenseLoading) {
-                return const Center(
-                  child: CircularProgressIndicator(),
-                );
-              } else if (state is ExpensesLoaded) {
-                return _buildExpenseList(state.expenses);
-              } else if (state is ExpenseOperationFailure) {
-                return Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Text(
-                        state.message,
-                        style: const TextStyle(color: Colors.red),
-                      ),
-                      const SizedBox(height: 16),
-                      ElevatedButton(
-                        onPressed: _loadExpenses,
-                        child: const Text('Retry'),
-                      ),
-                    ],
-                  ),
-                );
-              } else {
-                return Center(
-                  child: ElevatedButton(
-                    onPressed: _loadExpenses,
-                    child: const Text('Load Expenses'),
-                  ),
-                );
-              }
-            },
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildFilterBar() {
-    final l10n = AppLocalizations.of(context)!;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      color: Theme.of(context).colorScheme.surface,
+    return BlocListener<FilterBloc, FilterState>(
+      listener: (context, state) {
+        _loadExpenses();
+      },
       child: Column(
         children: [
-          Row(
-            children: [
-              Expanded(
-                child: _buildDateRangeSelector(l10n),
-              ),
-              const SizedBox(width: 8),
-              IconButton(
-                icon: const Icon(Icons.filter_list),
-                onPressed: () {
-                  _showFilterBottomSheet(context);
-                },
-                tooltip: 'Filter',
-              ),
-              IconButton(
-                icon: Icon(
-                    _sortAscending ? Icons.arrow_upward : Icons.arrow_downward),
-                onPressed: () {
-                  setState(() {
-                    _sortAscending = !_sortAscending;
-                  });
-                },
-                tooltip: _sortAscending ? 'Ascending' : 'Descending',
-              ),
-            ],
-          ),
-          if (_selectedCategoryId != null)
-            BlocBuilder<CategoryBloc, CategoryState>(
+          _buildFilterBar(),
+          Expanded(
+            child: BlocBuilder<ExpenseBloc, ExpenseState>(
               builder: (context, state) {
-                if (state is CategoriesLoaded) {
-                  final category = state.categories.firstWhere(
-                    (cat) => cat.id == _selectedCategoryId,
-                    orElse: () => const Category(
-                      id: 'unknown',
-                      name: 'Unknown',
-                      color: Color(0xFF9E9E9E),
-                      icon: Icons.help_outline,
+                if (state is ExpenseLoading) {
+                  return const Center(
+                    child: CircularProgressIndicator(),
+                  );
+                } else if (state is ExpensesLoaded) {
+                  return _buildExpenseList(state.expenses);
+                } else if (state is ExpenseOperationFailure) {
+                  return Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(
+                          state.message,
+                          style: const TextStyle(color: Colors.red),
+                        ),
+                        const SizedBox(height: 16),
+                        ElevatedButton(
+                          onPressed: _loadExpenses,
+                          child: const Text('Retry'),
+                        ),
+                      ],
                     ),
                   );
-
-                  return Padding(
-                    padding: const EdgeInsets.only(top: 8.0),
-                    child: Chip(
-                      label: Text(
-                        '${l10n.category}: ${category.name}',
-                      ),
-                      avatar: Icon(
-                        category.icon,
-                        color: category.color,
-                        size: 16,
-                      ),
-                      deleteIcon: const Icon(Icons.close, size: 16),
-                      onDeleted: () {
-                        setState(() {
-                          _selectedCategoryId = null;
-                        });
-                        _loadExpenses();
-                      },
+                } else {
+                  return Center(
+                    child: ElevatedButton(
+                      onPressed: _loadExpenses,
+                      child: const Text('Load Expenses'),
                     ),
                   );
                 }
-                return const SizedBox.shrink();
               },
             ),
+          ),
         ],
       ),
     );
   }
 
-  Widget _buildDateRangeSelector(AppLocalizations l10n) {
+  Widget _buildFilterBar() {
+    final l10n = AppLocalizations.of(context)!;
+    return BlocBuilder<FilterBloc, FilterState>(
+      builder: (context, filterState) {
+        return Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          color: Theme.of(context).colorScheme.surface,
+          child: Column(
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: _buildDateRangeSelector(l10n, filterState),
+                  ),
+                  const SizedBox(width: 8),
+                  IconButton(
+                    icon: const Icon(Icons.filter_list),
+                    onPressed: () {
+                      _showFilterBottomSheet(context);
+                    },
+                    tooltip: 'Filter',
+                  ),
+                  IconButton(
+                    icon: Icon(filterState.sortAscending
+                        ? Icons.arrow_upward
+                        : Icons.arrow_downward),
+                    onPressed: () {
+                      context
+                          .read<FilterBloc>()
+                          .add(ToggleSortDirectionEvent());
+                    },
+                    tooltip:
+                        filterState.sortAscending ? 'Ascending' : 'Descending',
+                  ),
+                ],
+              ),
+              if (filterState.selectedCategoryId != null)
+                BlocBuilder<CategoryBloc, CategoryState>(
+                  builder: (context, categoryState) {
+                    if (categoryState is CategoriesLoaded) {
+                      final category = categoryState.categories.firstWhere(
+                        (cat) => cat.id == filterState.selectedCategoryId,
+                        orElse: () => const Category(
+                          id: 'unknown',
+                          name: 'Unknown',
+                          color: Color(0xFF9E9E9E),
+                          icon: Icons.help_outline,
+                        ),
+                      );
+
+                      return Padding(
+                        padding: const EdgeInsets.only(top: 8.0),
+                        child: Chip(
+                          label: Text(
+                            '${l10n.category}: ${category.name}',
+                          ),
+                          avatar: Icon(
+                            category.icon,
+                            color: category.color,
+                            size: 16,
+                          ),
+                          deleteIcon: const Icon(Icons.close, size: 16),
+                          onDeleted: () {
+                            context.read<FilterBloc>().add(
+                                  const SetCategoryFilterEvent(null),
+                                );
+                          },
+                        ),
+                      );
+                    }
+                    return const SizedBox.shrink();
+                  },
+                ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildDateRangeSelector(
+      AppLocalizations l10n, FilterState filterState) {
     return InkWell(
       onTap: () => _selectDateRange(context),
       child: Container(
@@ -199,7 +221,7 @@ class _ExpensesPageState extends State<ExpensesPage> {
             const SizedBox(width: 8),
             Expanded(
               child: Text(
-                '${DateTimeUtils.formatDate(_startDate)} - ${DateTimeUtils.formatDate(_endDate)}',
+                '${DateTimeUtils.formatDate(filterState.startDate)} - ${DateTimeUtils.formatDate(filterState.endDate)}',
                 style: const TextStyle(fontSize: 14),
                 overflow: TextOverflow.ellipsis,
               ),
@@ -211,27 +233,30 @@ class _ExpensesPageState extends State<ExpensesPage> {
   }
 
   Future<void> _selectDateRange(BuildContext context) async {
+    final filterState = context.read<FilterBloc>().state;
     final DateTimeRange? picked = await showDateRangePicker(
       context: context,
       firstDate: DateTime(2020),
       lastDate: DateTime(2030),
       initialDateRange: DateTimeRange(
-        start: _startDate,
-        end: _endDate,
+        start: filterState.startDate,
+        end: filterState.endDate,
       ),
     );
 
     if (picked != null) {
-      setState(() {
-        _startDate = picked.start;
-        _endDate = picked.end;
-      });
-      _loadExpenses();
+      context.read<FilterBloc>().add(
+            SetDateRangeEvent(
+              startDate: picked.start,
+              endDate: picked.end,
+            ),
+          );
     }
   }
 
   void _showFilterBottomSheet(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
+    final filterBloc = context.read<FilterBloc>();
 
     showModalBottomSheet(
       context: context,
@@ -239,142 +264,147 @@ class _ExpensesPageState extends State<ExpensesPage> {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
-      builder: (context) {
-        return StatefulBuilder(
-          builder: (context, setState) {
-            return Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(
-                        'Filter Expenses',
-                        style: Theme.of(context).textTheme.titleLarge,
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.close),
-                        onPressed: () => Navigator.pop(context),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-
-                  // Category Filter
-                  Text(
-                    l10n.category,
-                    style: Theme.of(context).textTheme.titleMedium,
-                  ),
-                  const SizedBox(height: 8),
-                  BlocBuilder<CategoryBloc, CategoryState>(
-                    builder: (context, categoryState) {
-                      if (categoryState is CategoriesLoaded) {
-                        return SizedBox(
-                          height: 50,
-                          child: ListView.builder(
-                            scrollDirection: Axis.horizontal,
-                            itemCount: categoryState.categories.length,
-                            itemBuilder: (context, index) {
-                              final category = categoryState.categories[index];
-                              final isSelected =
-                                  _selectedCategoryId == category.id;
-
-                              return Padding(
-                                padding: const EdgeInsets.only(right: 8),
-                                child: ChoiceChip(
-                                  label: Text(category.name),
-                                  selected: isSelected,
-                                  avatar: Icon(
-                                    category.icon,
-                                    color: isSelected
-                                        ? Colors.white
-                                        : category.color,
-                                    size: 20,
-                                  ),
-                                  selectedColor: category.color,
-                                  onSelected: (selected) {
-                                    setState(() {
-                                      _selectedCategoryId =
-                                          selected ? category.id : null;
-                                    });
-                                  },
-                                ),
-                              );
-                            },
-                          ),
-                        );
-                      }
-                      return const Center(
-                        child: CircularProgressIndicator(),
-                      );
-                    },
-                  ),
-                  const SizedBox(height: 16),
-
-                  // Sort By
-                  Text(
-                    'Sort By',
-                    style: Theme.of(context).textTheme.titleMedium,
-                  ),
-                  const SizedBox(height: 8),
-                  Wrap(
-                    spacing: 8,
-                    children: [
-                      ChoiceChip(
-                        label: const Text('Date'),
-                        selected: _sortBy == 'date',
-                        onSelected: (selected) {
-                          if (selected) {
-                            setState(() {
-                              _sortBy = 'date';
-                            });
-                          }
-                        },
-                      ),
-                      ChoiceChip(
-                        label: const Text('Amount'),
-                        selected: _sortBy == 'amount',
-                        onSelected: (selected) {
-                          if (selected) {
-                            setState(() {
-                              _sortBy = 'amount';
-                            });
-                          }
-                        },
-                      ),
-                      ChoiceChip(
-                        label: const Text('Category'),
-                        selected: _sortBy == 'category',
-                        onSelected: (selected) {
-                          if (selected) {
-                            setState(() {
-                              _sortBy = 'category';
-                            });
-                          }
-                        },
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 24),
-
-                  // Apply Button
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton(
-                      onPressed: () {
-                        Navigator.pop(context);
-                        _loadExpenses();
-                      },
-                      child: const Text('Apply Filters'),
+      builder: (bottomSheetContext) {
+        return BlocProvider.value(
+          value: filterBloc,
+          child: BlocBuilder<FilterBloc, FilterState>(
+            builder: (context, filterState) {
+              return Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          'Filter Expenses',
+                          style: Theme.of(context).textTheme.titleLarge,
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.close),
+                          onPressed: () => Navigator.pop(context),
+                        ),
+                      ],
                     ),
-                  ),
-                ],
-              ),
-            );
-          },
+                    const SizedBox(height: 16),
+
+                    // Category Filter
+                    Text(
+                      l10n.category,
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                    const SizedBox(height: 8),
+                    BlocBuilder<CategoryBloc, CategoryState>(
+                      builder: (context, categoryState) {
+                        if (categoryState is CategoriesLoaded) {
+                          return SizedBox(
+                            height: 50,
+                            child: ListView.builder(
+                              scrollDirection: Axis.horizontal,
+                              itemCount: categoryState.categories.length,
+                              itemBuilder: (context, index) {
+                                final category =
+                                    categoryState.categories[index];
+                                final isSelected =
+                                    filterState.selectedCategoryId ==
+                                        category.id;
+
+                                return Padding(
+                                  padding: const EdgeInsets.only(right: 8),
+                                  child: ChoiceChip(
+                                    label: Text(category.name),
+                                    selected: isSelected,
+                                    avatar: Icon(
+                                      category.icon,
+                                      color: isSelected
+                                          ? Colors.white
+                                          : category.color,
+                                      size: 20,
+                                    ),
+                                    selectedColor: category.color,
+                                    onSelected: (selected) {
+                                      context.read<FilterBloc>().add(
+                                            SetCategoryFilterEvent(
+                                              selected ? category.id : null,
+                                            ),
+                                          );
+                                    },
+                                  ),
+                                );
+                              },
+                            ),
+                          );
+                        }
+                        return const Center(
+                          child: CircularProgressIndicator(),
+                        );
+                      },
+                    ),
+                    const SizedBox(height: 16),
+
+                    // Sort By
+                    Text(
+                      'Sort By',
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 8,
+                      children: [
+                        ChoiceChip(
+                          label: const Text('Date'),
+                          selected: filterState.sortBy == 'date',
+                          onSelected: (selected) {
+                            if (selected) {
+                              context.read<FilterBloc>().add(
+                                    const SetSortByEvent('date'),
+                                  );
+                            }
+                          },
+                        ),
+                        ChoiceChip(
+                          label: const Text('Amount'),
+                          selected: filterState.sortBy == 'amount',
+                          onSelected: (selected) {
+                            if (selected) {
+                              context.read<FilterBloc>().add(
+                                    const SetSortByEvent('amount'),
+                                  );
+                            }
+                          },
+                        ),
+                        ChoiceChip(
+                          label: const Text('Category'),
+                          selected: filterState.sortBy == 'category',
+                          onSelected: (selected) {
+                            if (selected) {
+                              context.read<FilterBloc>().add(
+                                    const SetSortByEvent('category'),
+                                  );
+                            }
+                          },
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 24),
+
+                    // Apply Button
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton(
+                        onPressed: () {
+                          Navigator.pop(context);
+                        },
+                        child: const Text('Apply Filters'),
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
         );
       },
     );
@@ -382,6 +412,7 @@ class _ExpensesPageState extends State<ExpensesPage> {
 
   Widget _buildExpenseList(List<Expense> expenses) {
     final l10n = AppLocalizations.of(context)!;
+    final filterState = context.watch<FilterBloc>().state;
 
     if (expenses.isEmpty) {
       return Center(
@@ -413,19 +444,19 @@ class _ExpensesPageState extends State<ExpensesPage> {
     // Sort expenses based on selected criteria
     final sortedExpenses = List<Expense>.from(expenses);
 
-    switch (_sortBy) {
+    switch (filterState.sortBy) {
       case 'date':
-        sortedExpenses.sort((a, b) => _sortAscending
+        sortedExpenses.sort((a, b) => filterState.sortAscending
             ? a.date.compareTo(b.date)
             : b.date.compareTo(a.date));
         break;
       case 'amount':
-        sortedExpenses.sort((a, b) => _sortAscending
+        sortedExpenses.sort((a, b) => filterState.sortAscending
             ? a.amount.compareTo(b.amount)
             : b.amount.compareTo(a.amount));
         break;
       case 'category':
-        sortedExpenses.sort((a, b) => _sortAscending
+        sortedExpenses.sort((a, b) => filterState.sortAscending
             ? a.categoryId.compareTo(b.categoryId)
             : b.categoryId.compareTo(a.categoryId));
         break;
@@ -446,12 +477,6 @@ class _ExpensesPageState extends State<ExpensesPage> {
                 final expense = sortedExpenses[index];
                 Category category = categoryState.categories.firstWhereOrNull(
                       (cat) => cat.id == expense.categoryId,
-                      // orElse: () => const Category(
-                      //   id: 'unknown',
-                      //   name: 'Unknown',
-                      //   color: Color(0xFF9E9E9E),
-                      //   icon: Icons.help_outline,
-                      // ),
                     ) ??
                     Category(
                       id: 'unknown',

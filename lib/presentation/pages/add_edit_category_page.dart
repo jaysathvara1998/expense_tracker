@@ -2,16 +2,17 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_gen/gen_l10n/app_localizations.dart';
-import 'package:uuid/uuid.dart';
 
 import '../../core/constants/app_constants.dart';
 import '../../core/util/input_validators.dart';
 import '../../domain/entities/category.dart';
 import '../bloc/category/category_bloc.dart';
-import '../bloc/category/category_event.dart';
 import '../bloc/category/category_state.dart';
+import '../bloc/category_form/category_form_bloc.dart';
+import '../bloc/category_form/category_form_event.dart';
+import '../bloc/category_form/category_form_state.dart';
 
-class AddEditCategoryPage extends StatefulWidget {
+class AddEditCategoryPage extends StatelessWidget {
   final Category? category;
 
   const AddEditCategoryPage({
@@ -20,32 +21,51 @@ class AddEditCategoryPage extends StatefulWidget {
   }) : super(key: key);
 
   @override
-  State<AddEditCategoryPage> createState() => _AddEditCategoryPageState();
+  Widget build(BuildContext context) {
+    return BlocProvider(
+      create: (context) => CategoryFormBloc(
+        categoryBloc: context.read<CategoryBloc>(),
+      )..add(InitializeCategoryFormEvent(category)),
+      child: const _AddEditCategoryFormView(),
+    );
+  }
 }
 
-class _AddEditCategoryPageState extends State<AddEditCategoryPage> {
+class _AddEditCategoryFormView extends StatefulWidget {
+  const _AddEditCategoryFormView();
+
+  @override
+  State<_AddEditCategoryFormView> createState() =>
+      _AddEditCategoryFormViewState();
+}
+
+class _AddEditCategoryFormViewState extends State<_AddEditCategoryFormView> {
   final _formKey = GlobalKey<FormState>();
-
   final _nameController = TextEditingController();
-  Color _selectedColor = AppConstants.categoryColors.first;
-  IconData _selectedIcon = AppConstants.categoryIcons.first;
-
-  bool _isEditing = false;
-  bool _isSubmitting = false;
-  bool _isDefault = false;
 
   @override
   void initState() {
     super.initState();
-    _isEditing = widget.category != null;
 
-    if (_isEditing) {
-      final category = widget.category!;
-      _nameController.text = category.name;
-      _selectedColor = category.color;
-      _selectedIcon = category.icon;
-      _isDefault = category.isDefault;
+    // Add listeners to update bloc on text changes
+    _nameController.addListener(_onNameChanged);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+
+    // Initialize text controllers from bloc state
+    final state = context.read<CategoryFormBloc>().state;
+    if (_nameController.text != state.name) {
+      _nameController.text = state.name;
     }
+  }
+
+  void _onNameChanged() {
+    context.read<CategoryFormBloc>().add(
+          ChangeCategoryNameEvent(_nameController.text),
+        );
   }
 
   @override
@@ -57,116 +77,134 @@ class _AddEditCategoryPageState extends State<AddEditCategoryPage> {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(_isEditing ? l10n.editCategory : l10n.addCategory),
-      ),
-      body: BlocListener<CategoryBloc, CategoryState>(
-        listener: (context, state) {
-          if (state is CategoryOperationSuccess) {
-            Navigator.pop(context, true);
-          } else if (state is CategoryOperationFailure) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text(state.message),
-                backgroundColor: Colors.red,
-              ),
-            );
-            setState(() {
-              _isSubmitting = false;
-            });
-          }
-        },
-        child: Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: Form(
-            key: _formKey,
-            child: ListView(
-              children: [
-                // Category Name
-                TextFormField(
-                  controller: _nameController,
-                  decoration: InputDecoration(
-                    labelText: l10n.categoryName,
-                    border: const OutlineInputBorder(),
+
+    return BlocConsumer<CategoryFormBloc, CategoryFormState>(
+      listenWhen: (previous, current) =>
+          previous.isSubmitting && !current.isSubmitting,
+      listener: (context, state) {
+        // Nothing to do here - we'll handle success/failure via the CategoryBloc listener
+      },
+      builder: (context, formState) {
+        return Scaffold(
+          appBar: AppBar(
+            title: Text(
+                formState.isEditing ? l10n.editCategory : l10n.addCategory),
+          ),
+          body: BlocListener<CategoryBloc, CategoryState>(
+            listener: (context, categoryState) {
+              if (categoryState is CategoryOperationSuccess) {
+                Navigator.pop(context, true);
+              } else if (categoryState is CategoryOperationFailure) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(categoryState.message),
+                    backgroundColor: Colors.red,
                   ),
-                  validator: InputValidators.validateName,
-                  enabled: !_isDefault,
-                ),
-                const SizedBox(height: 24),
-
-                // Category Color
-                _buildColorPicker(l10n),
-                const SizedBox(height: 24),
-
-                // Category Icon
-                _buildIconPicker(l10n),
-                const SizedBox(height: 24),
-
-                // Save Button
-                ElevatedButton(
-                  onPressed: _isSubmitting || _isDefault ? null : _submitForm,
-                  child: _isSubmitting
-                      ? const CircularProgressIndicator()
-                      : Text(_isEditing ? l10n.save : l10n.addCategory),
-                ),
-
-                if (_isEditing && !_isDefault) ...[
-                  const SizedBox(height: 16),
-                  // Delete Button
-                  OutlinedButton(
-                    onPressed: _isSubmitting ? null : _deleteCategory,
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: Colors.red,
+                );
+                context.read<CategoryFormBloc>().add(
+                      const SubmittingCategoryFormEvent(),
+                    );
+              }
+            },
+            child: Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Form(
+                key: _formKey,
+                child: ListView(
+                  children: [
+                    // Category Name
+                    TextFormField(
+                      controller: _nameController,
+                      decoration: InputDecoration(
+                        labelText: l10n.categoryName,
+                        border: const OutlineInputBorder(),
+                      ),
+                      validator: InputValidators.validateName,
+                      enabled: !formState.isDefault,
                     ),
-                    child: Text(l10n.delete),
-                  ),
-                ],
+                    const SizedBox(height: 24),
 
-                if (_isDefault) ...[
-                  const SizedBox(height: 16),
-                  // Default Category Notice
-                  Container(
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: Colors.amber.withOpacity(0.2),
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: Colors.amber),
+                    // Category Color
+                    _buildColorPicker(l10n, formState),
+                    const SizedBox(height: 24),
+
+                    // Category Icon
+                    _buildIconPicker(l10n, formState),
+                    const SizedBox(height: 24),
+
+                    // Save Button
+                    ElevatedButton(
+                      onPressed: formState.isSubmitting ||
+                              formState.isDefault ||
+                              !formState.isFormValid
+                          ? null
+                          : _submitForm,
+                      child: formState.isSubmitting
+                          ? const CircularProgressIndicator()
+                          : Text(formState.isEditing
+                              ? l10n.save
+                              : l10n.addCategory),
                     ),
-                    child: Column(
-                      children: [
-                        Row(
+
+                    if (formState.isEditing && !formState.isDefault) ...[
+                      const SizedBox(height: 16),
+                      // Delete Button
+                      OutlinedButton(
+                        onPressed:
+                            formState.isSubmitting ? null : _deleteCategory,
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: Colors.red,
+                        ),
+                        child: Text(l10n.delete),
+                      ),
+                    ],
+
+                    if (formState.isDefault) ...[
+                      const SizedBox(height: 16),
+                      // Default Category Notice
+                      Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: Colors.amber.withOpacity(0.2),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: Colors.amber),
+                        ),
+                        child: Column(
                           children: [
-                            const Icon(Icons.info, color: Colors.amber),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                'Default Category',
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.bold,
+                            Row(
+                              children: [
+                                const Icon(Icons.info, color: Colors.amber),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    'Default Category',
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
                                 ),
-                              ),
+                              ],
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              'Default categories cannot be edited or deleted to ensure the app functions correctly.',
+                              style: Theme.of(context).textTheme.bodyMedium,
                             ),
                           ],
                         ),
-                        const SizedBox(height: 8),
-                        Text(
-                          'Default categories cannot be edited or deleted to ensure the app functions correctly.',
-                          style: Theme.of(context).textTheme.bodyMedium,
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ],
+                      ),
+                    ],
+                  ],
+                ),
+              ),
             ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 
-  Widget _buildColorPicker(AppLocalizations l10n) {
+  Widget _buildColorPicker(AppLocalizations l10n, CategoryFormState formState) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -193,15 +231,15 @@ class _AddEditCategoryPageState extends State<AddEditCategoryPage> {
             itemCount: AppConstants.categoryColors.length,
             itemBuilder: (context, index) {
               final color = AppConstants.categoryColors[index];
-              final isSelected = color.value == _selectedColor.value;
+              final isSelected = color.value == formState.color.value;
 
               return GestureDetector(
-                onTap: _isDefault
+                onTap: formState.isDefault
                     ? null
                     : () {
-                        setState(() {
-                          _selectedColor = color;
-                        });
+                        context.read<CategoryFormBloc>().add(
+                              ChangeCategoryColorEvent(color),
+                            );
                       },
                 child: Container(
                   decoration: BoxDecoration(
@@ -215,7 +253,7 @@ class _AddEditCategoryPageState extends State<AddEditCategoryPage> {
                         : null,
                   ),
                   child: isSelected
-                      ? Icon(
+                      ? const Icon(
                           Icons.check,
                           color: Colors.white,
                         )
@@ -229,7 +267,7 @@ class _AddEditCategoryPageState extends State<AddEditCategoryPage> {
     );
   }
 
-  Widget _buildIconPicker(AppLocalizations l10n) {
+  Widget _buildIconPicker(AppLocalizations l10n, CategoryFormState formState) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -255,30 +293,30 @@ class _AddEditCategoryPageState extends State<AddEditCategoryPage> {
             itemCount: AppConstants.categoryIcons.length,
             itemBuilder: (context, index) {
               final icon = AppConstants.categoryIcons[index];
-              final isSelected = icon.codePoint == _selectedIcon.codePoint;
+              final isSelected = icon.codePoint == formState.icon.codePoint;
 
               return GestureDetector(
-                onTap: _isDefault
+                onTap: formState.isDefault
                     ? null
                     : () {
-                        setState(() {
-                          _selectedIcon = icon;
-                        });
+                        context.read<CategoryFormBloc>().add(
+                              ChangeCategoryIconEvent(icon),
+                            );
                       },
                 child: Container(
                   decoration: BoxDecoration(
-                    color: isSelected ? _selectedColor.withOpacity(0.2) : null,
+                    color: isSelected ? formState.color.withOpacity(0.2) : null,
                     borderRadius: BorderRadius.circular(8),
                     border: isSelected
                         ? Border.all(
-                            color: _selectedColor,
+                            color: formState.color,
                             width: 2,
                           )
                         : null,
                   ),
                   child: Icon(
                     icon,
-                    color: isSelected ? _selectedColor : Colors.grey[600],
+                    color: isSelected ? formState.color : Colors.grey[600],
                   ),
                 ),
               );
@@ -291,29 +329,14 @@ class _AddEditCategoryPageState extends State<AddEditCategoryPage> {
 
   void _submitForm() {
     if (_formKey.currentState!.validate()) {
-      setState(() {
-        _isSubmitting = true;
-      });
-
-      // Create category entity
-      final category = Category(
-        id: _isEditing ? widget.category!.id : const Uuid().v4(),
-        name: _nameController.text,
-        color: _selectedColor,
-        icon: _selectedIcon,
-        isDefault: false,
-      );
-
-      // Save or update category
-      if (_isEditing) {
-        context.read<CategoryBloc>().add(UpdateCategoryEvent(category));
-      } else {
-        context.read<CategoryBloc>().add(AddCategoryEvent(category));
-      }
+      context.read<CategoryFormBloc>().add(const SubmitCategoryFormEvent());
     }
   }
 
   void _deleteCategory() {
+    final categoryId = context.read<CategoryFormBloc>().state.id;
+    if (categoryId == null) return;
+
     showDialog(
       context: context,
       builder: (context) {
@@ -329,12 +352,9 @@ class _AddEditCategoryPageState extends State<AddEditCategoryPage> {
             TextButton(
               onPressed: () {
                 Navigator.of(context).pop();
-                setState(() {
-                  _isSubmitting = true;
-                });
-                context.read<CategoryBloc>().add(
-                      DeleteCategoryEvent(widget.category!.id),
-                    );
+                context
+                    .read<CategoryFormBloc>()
+                    .add(DeleteCategoryEvent(categoryId));
               },
               child: Text(
                 l10n.delete,

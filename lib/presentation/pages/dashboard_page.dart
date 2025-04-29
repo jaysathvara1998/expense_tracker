@@ -1,16 +1,15 @@
 // lib/presentation/pages/dashboard_page.dart
-import 'package:expanse_tracker/domain/entities/category.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_gen/gen_l10n/app_localizations.dart';
 
 import '../../core/util/date_time_utils.dart';
+import '../../domain/entities/category.dart';
 import '../../domain/entities/expense.dart';
 import '../bloc/category/category_bloc.dart';
 import '../bloc/category/category_event.dart';
 import '../bloc/category/category_state.dart';
 import '../bloc/dashboard/dashboard_bloc.dart';
-import '../bloc/dashboard/dashboard_event.dart';
 import '../bloc/dashboard/dashboard_state.dart';
 import '../bloc/expense/expense_bloc.dart';
 import '../bloc/expense/expense_event.dart';
@@ -18,6 +17,9 @@ import '../bloc/goal/goal_bloc.dart';
 import '../bloc/goal/goal_event.dart';
 import '../bloc/loan/loan_bloc.dart';
 import '../bloc/loan/loan_event.dart';
+import '../bloc/navigation/navigation_bloc.dart';
+import '../bloc/navigation/navigation_event.dart';
+import '../bloc/navigation/navigation_state.dart';
 import '../widgets/chart_widgets.dart';
 import '../widgets/expense_list_item.dart';
 import '../widgets/goal_list_item.dart';
@@ -30,103 +32,113 @@ import 'goals_page.dart';
 import 'loans_page.dart';
 import 'settings_page.dart';
 
-class DashboardPage extends StatefulWidget {
+class DashboardPage extends StatelessWidget {
   const DashboardPage({Key? key}) : super(key: key);
 
   @override
-  State<DashboardPage> createState() => _DashboardPageState();
+  Widget build(BuildContext context) {
+    return BlocProvider(
+      create: (context) => NavigationBloc(
+        dashboardBloc: context.read<DashboardBloc>(),
+      )..add(const RefreshDashboardEvent()),
+      child: const _DashboardView(),
+    );
+  }
 }
 
-class _DashboardPageState extends State<DashboardPage> {
-  int _selectedIndex = 0;
-  late DateTime _selectedMonth;
+class _DashboardView extends StatefulWidget {
+  const _DashboardView();
 
+  @override
+  State<_DashboardView> createState() => _DashboardViewState();
+}
+
+class _DashboardViewState extends State<_DashboardView> {
   @override
   void initState() {
     super.initState();
-    _selectedMonth = DateTime.now();
-    _loadData();
-  }
 
-  void _loadData() {
     // Load categories first
     context.read<CategoryBloc>().add(GetAllCategoriesEvent());
 
-    // Load dashboard data for current month
-    context.read<DashboardBloc>().add(
-          LoadDashboardDataEvent(month: _selectedMonth),
-        );
+    // Dashboard data will be loaded by NavigationBloc's RefreshDashboardEvent
   }
 
-  void _onItemTapped(int index) {
-    setState(() {
-      _selectedIndex = index;
-    });
+  void _loadData() {
+    // Refresh dashboard data
+    context.read<NavigationBloc>().add(const RefreshDashboardEvent());
   }
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
 
-    final List<Widget> pages = [
-      _buildDashboardContent(),
-      const ExpensesPage(),
-      const CategoriesPage(),
-      const GoalsPage(),
-      const LoansPage(),
-      const SettingsPage(),
-    ];
+    return BlocBuilder<NavigationBloc, NavigationState>(
+      builder: (context, navState) {
+        final List<Widget> pages = [
+          _buildDashboardContent(navState),
+          const ExpensesPage(),
+          const CategoriesPage(),
+          const GoalsPage(),
+          const LoansPage(),
+          const SettingsPage(),
+        ];
 
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(
-          _getAppBarTitle(l10n),
-        ),
-        actions: _buildAppBarActions(l10n),
-      ),
-      body: pages[_selectedIndex],
-      bottomNavigationBar: BottomNavigationBar(
-        items: <BottomNavigationBarItem>[
-          BottomNavigationBarItem(
-            icon: const Icon(Icons.dashboard),
-            label: l10n.dashboard,
+        return Scaffold(
+          appBar: AppBar(
+            title: Text(
+              _getAppBarTitle(l10n, navState.selectedTabIndex),
+            ),
+            actions: _buildAppBarActions(l10n, navState),
           ),
-          BottomNavigationBarItem(
-            icon: const Icon(Icons.money_off),
-            label: l10n.expenses,
+          body: pages[navState.selectedTabIndex],
+          bottomNavigationBar: BottomNavigationBar(
+            items: <BottomNavigationBarItem>[
+              BottomNavigationBarItem(
+                icon: const Icon(Icons.dashboard),
+                label: l10n.dashboard,
+              ),
+              BottomNavigationBarItem(
+                icon: const Icon(Icons.money_off),
+                label: l10n.expenses,
+              ),
+              BottomNavigationBarItem(
+                icon: const Icon(Icons.category),
+                label: l10n.categories,
+              ),
+              BottomNavigationBarItem(
+                icon: const Icon(Icons.flag),
+                label: l10n.goals,
+              ),
+              BottomNavigationBarItem(
+                icon: const Icon(Icons.account_balance),
+                label: l10n.loans,
+              ),
+              BottomNavigationBarItem(
+                icon: const Icon(Icons.settings),
+                label: l10n.settings,
+              ),
+            ],
+            currentIndex: navState.selectedTabIndex,
+            onTap: (index) {
+              context.read<NavigationBloc>().add(NavigateToTabEvent(index));
+            },
           ),
-          BottomNavigationBarItem(
-            icon: const Icon(Icons.category),
-            label: l10n.categories,
-          ),
-          BottomNavigationBarItem(
-            icon: const Icon(Icons.flag),
-            label: l10n.goals,
-          ),
-          BottomNavigationBarItem(
-            icon: const Icon(Icons.account_balance),
-            label: l10n.loans,
-          ),
-          BottomNavigationBarItem(
-            icon: const Icon(Icons.settings),
-            label: l10n.settings,
-          ),
-        ],
-        currentIndex: _selectedIndex,
-        onTap: _onItemTapped,
-      ),
-      floatingActionButton: _selectedIndex == 1
-          ? FloatingActionButton(
-              onPressed: () => _navigateToAddExpense(context),
-              tooltip: l10n.addExpense,
-              child: const Icon(Icons.add),
-            )
-          : null,
+          floatingActionButton: navState.selectedTabIndex == 1
+              ? FloatingActionButton(
+                  onPressed: () =>
+                      _navigateToAddExpense(context, navState.selectedMonth),
+                  tooltip: l10n.addExpense,
+                  child: const Icon(Icons.add),
+                )
+              : null,
+        );
+      },
     );
   }
 
-  String _getAppBarTitle(AppLocalizations l10n) {
-    switch (_selectedIndex) {
+  String _getAppBarTitle(AppLocalizations l10n, int selectedIndex) {
+    switch (selectedIndex) {
       case 0:
         return l10n.dashboard;
       case 1:
@@ -144,12 +156,13 @@ class _DashboardPageState extends State<DashboardPage> {
     }
   }
 
-  List<Widget> _buildAppBarActions(AppLocalizations l10n) {
-    if (_selectedIndex == 0) {
+  List<Widget> _buildAppBarActions(
+      AppLocalizations l10n, NavigationState navState) {
+    if (navState.selectedTabIndex == 0) {
       return [
         IconButton(
           icon: const Icon(Icons.calendar_today),
-          onPressed: () => _selectMonth(context),
+          onPressed: () => _selectMonth(context, navState.selectedMonth),
           tooltip: 'Select Month',
         ),
         IconButton(
@@ -162,26 +175,23 @@ class _DashboardPageState extends State<DashboardPage> {
     return [];
   }
 
-  Future<void> _selectMonth(BuildContext context) async {
+  Future<void> _selectMonth(BuildContext context, DateTime currentMonth) async {
     final DateTime? picked = await showDatePicker(
       context: context,
-      initialDate: _selectedMonth,
+      initialDate: currentMonth,
       firstDate: DateTime(2020),
       lastDate: DateTime(2030),
       initialDatePickerMode: DatePickerMode.year,
     );
 
-    if (picked != null && picked != _selectedMonth) {
-      setState(() {
-        _selectedMonth = DateTime(picked.year, picked.month, 1);
-        context.read<DashboardBloc>().add(
-              LoadDashboardDataEvent(month: _selectedMonth),
-            );
-      });
+    if (picked != null && picked != currentMonth) {
+      final newMonth = DateTime(picked.year, picked.month, 1);
+      context.read<NavigationBloc>().add(ChangeMonthEvent(newMonth));
     }
   }
 
-  void _navigateToAddExpense(BuildContext context) async {
+  void _navigateToAddExpense(
+      BuildContext context, DateTime selectedMonth) async {
     final result = await Navigator.push(
       context,
       MaterialPageRoute(
@@ -193,18 +203,16 @@ class _DashboardPageState extends State<DashboardPage> {
       // Refresh expenses and dashboard when a new expense is added
       context.read<ExpenseBloc>().add(
             GetExpensesByDateRangeEvent(
-              start: DateTimeUtils.getStartOfMonth(_selectedMonth),
-              end: DateTimeUtils.getEndOfMonth(_selectedMonth),
+              start: DateTimeUtils.getStartOfMonth(selectedMonth),
+              end: DateTimeUtils.getEndOfMonth(selectedMonth),
             ),
           );
 
-      context.read<DashboardBloc>().add(
-            LoadDashboardDataEvent(month: _selectedMonth),
-          );
+      context.read<NavigationBloc>().add(const RefreshDashboardEvent());
     }
   }
 
-  Widget _buildDashboardContent() {
+  Widget _buildDashboardContent(NavigationState navState) {
     return BlocBuilder<DashboardBloc, DashboardState>(
       builder: (context, state) {
         if (state.isLoading) {
@@ -232,12 +240,12 @@ class _DashboardPageState extends State<DashboardPage> {
           );
         }
 
-        return _buildDashboardData(state);
+        return _buildDashboardData(state, navState);
       },
     );
   }
 
-  Widget _buildDashboardData(DashboardState state) {
+  Widget _buildDashboardData(DashboardState state, NavigationState navState) {
     final l10n = AppLocalizations.of(context)!;
 
     return RefreshIndicator(
@@ -282,7 +290,7 @@ class _DashboardPageState extends State<DashboardPage> {
             if (state.currentMonthExpenses.isNotEmpty)
               MonthlyExpenseBarChart(
                 expenses: state.currentMonthExpenses,
-                month: _selectedMonth,
+                month: navState.selectedMonth,
               )
             else
               _buildNoDataWidget(l10n.noData),
@@ -300,7 +308,7 @@ class _DashboardPageState extends State<DashboardPage> {
             const SizedBox(height: 24),
 
             // Recent Expenses
-            _buildRecentExpenses(state),
+            _buildRecentExpenses(state, navState),
 
             const SizedBox(height: 24),
 
@@ -345,7 +353,7 @@ class _DashboardPageState extends State<DashboardPage> {
     );
   }
 
-  Widget _buildRecentExpenses(DashboardState state) {
+  Widget _buildRecentExpenses(DashboardState state, NavigationState navState) {
     final l10n = AppLocalizations.of(context)!;
 
     return Column(
@@ -364,9 +372,9 @@ class _DashboardPageState extends State<DashboardPage> {
               ),
               TextButton(
                 onPressed: () {
-                  setState(() {
-                    _selectedIndex = 1; // Navigate to Expenses tab
-                  });
+                  context
+                      .read<NavigationBloc>()
+                      .add(const NavigateToTabEvent(1));
                 },
                 child: Text(
                   'View All',
@@ -455,9 +463,9 @@ class _DashboardPageState extends State<DashboardPage> {
               ),
               TextButton(
                 onPressed: () {
-                  setState(() {
-                    _selectedIndex = 3; // Navigate to Goals tab
-                  });
+                  context
+                      .read<NavigationBloc>()
+                      .add(const NavigateToTabEvent(3));
                 },
                 child: Text(
                   'View All',
@@ -484,9 +492,9 @@ class _DashboardPageState extends State<DashboardPage> {
                 onTap: () {
                   // Navigate to goal details or edit goal
                   context.read<GoalBloc>().add(GetAllGoalsEvent());
-                  setState(() {
-                    _selectedIndex = 3; // Navigate to Goals tab
-                  });
+                  context
+                      .read<NavigationBloc>()
+                      .add(const NavigateToTabEvent(3));
                 },
               );
             },
@@ -514,9 +522,9 @@ class _DashboardPageState extends State<DashboardPage> {
               ),
               TextButton(
                 onPressed: () {
-                  setState(() {
-                    _selectedIndex = 4; // Navigate to Loans tab
-                  });
+                  context
+                      .read<NavigationBloc>()
+                      .add(const NavigateToTabEvent(4));
                 },
                 child: Text(
                   'View All',
@@ -543,9 +551,9 @@ class _DashboardPageState extends State<DashboardPage> {
                 onTap: () {
                   // Navigate to loan details or edit loan
                   context.read<LoanBloc>().add(GetAllLoansEvent());
-                  setState(() {
-                    _selectedIndex = 4; // Navigate to Loans tab
-                  });
+                  context
+                      .read<NavigationBloc>()
+                      .add(const NavigateToTabEvent(4));
                 },
               );
             },

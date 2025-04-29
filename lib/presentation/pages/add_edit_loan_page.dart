@@ -1,62 +1,92 @@
-// lib/presentation/pages/add_edit_loan_page.dart
+import 'package:expanse_tracker/presentation/bloc/loan_form/loan_form_bloc.dart';
+import 'package:expanse_tracker/presentation/bloc/loan_form/loan_form_event.dart';
+import 'package:expanse_tracker/presentation/bloc/loan_form/loan_form_state.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_gen/gen_l10n/app_localizations.dart';
-import 'package:uuid/uuid.dart';
 
 import '../../core/util/date_time_utils.dart';
 import '../../core/util/input_validators.dart';
 import '../../domain/entities/loan.dart';
 import '../bloc/loan/loan_bloc.dart';
-import '../bloc/loan/loan_event.dart';
 import '../bloc/loan/loan_state.dart';
 
-class AddEditLoanPage extends StatefulWidget {
+class AddEditLoanPage extends StatelessWidget {
   final Loan? loan;
 
   const AddEditLoanPage({
-    Key? key,
+    super.key,
     this.loan,
-  }) : super(key: key);
+  });
 
   @override
-  State<AddEditLoanPage> createState() => _AddEditLoanPageState();
+  Widget build(BuildContext context) {
+    return BlocProvider(
+      create: (context) => LoanFormBloc(
+        loanBloc: context.read<LoanBloc>(),
+      )..add(InitializeLoanFormEvent(loan)),
+      child: const _AddEditLoanFormView(),
+    );
+  }
 }
 
-class _AddEditLoanPageState extends State<AddEditLoanPage> {
+class _AddEditLoanFormView extends StatefulWidget {
+  const _AddEditLoanFormView();
+
+  @override
+  State<_AddEditLoanFormView> createState() => _AddEditLoanFormViewState();
+}
+
+class _AddEditLoanFormViewState extends State<_AddEditLoanFormView> {
   final _formKey = GlobalKey<FormState>();
 
   final _personNameController = TextEditingController();
   final _amountController = TextEditingController();
-  late DateTime _date;
-  DateTime? _dueDate;
   final _descriptionController = TextEditingController();
-  bool _hasReminder = false;
-  late LoanType _type;
-  bool _isSettled = false;
-
-  bool _isEditing = false;
-  bool _isSubmitting = false;
 
   @override
   void initState() {
     super.initState();
-    _isEditing = widget.loan != null;
 
-    if (_isEditing) {
-      final loan = widget.loan!;
-      _personNameController.text = loan.personName;
-      _amountController.text = loan.amount.toString();
-      _date = loan.date;
-      _dueDate = loan.dueDate;
-      _descriptionController.text = loan.description;
-      _hasReminder = loan.hasReminder;
-      _type = loan.type;
-      _isSettled = loan.isSettled;
-    } else {
-      _date = DateTime.now();
-      _type = LoanType.borrowed;
+    // Add listeners to update bloc on text changes
+    _personNameController.addListener(_onPersonNameChanged);
+    _amountController.addListener(_onAmountChanged);
+    _descriptionController.addListener(_onDescriptionChanged);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+
+    // Initialize text controllers from bloc state
+    final state = context.read<LoanFormBloc>().state;
+    if (_personNameController.text != state.personName) {
+      _personNameController.text = state.personName;
     }
+    if (_amountController.text != state.amount) {
+      _amountController.text = state.amount;
+    }
+    if (_descriptionController.text != state.description) {
+      _descriptionController.text = state.description;
+    }
+  }
+
+  void _onPersonNameChanged() {
+    context.read<LoanFormBloc>().add(
+          ChangePersonNameEvent(_personNameController.text),
+        );
+  }
+
+  void _onAmountChanged() {
+    context.read<LoanFormBloc>().add(
+          ChangeAmountEvent(_amountController.text),
+        );
+  }
+
+  void _onDescriptionChanged() {
+    context.read<LoanFormBloc>().add(
+          ChangeDescriptionEvent(_descriptionController.text),
+        );
   }
 
   @override
@@ -70,199 +100,213 @@ class _AddEditLoanPageState extends State<AddEditLoanPage> {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(_isEditing ? l10n.editLoan : l10n.addLoan),
-      ),
-      body: BlocListener<LoanBloc, LoanState>(
-        listener: (context, state) {
-          if (state is LoanOperationSuccess) {
-            Navigator.pop(context, true);
-          } else if (state is LoanOperationFailure) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text(state.message),
-                backgroundColor: Colors.red,
-              ),
-            );
-            setState(() {
-              _isSubmitting = false;
-            });
-          }
-        },
-        child: Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: Form(
-            key: _formKey,
-            child: ListView(
-              children: [
-                // Loan Type
-                _buildLoanTypeSelector(l10n),
-                const SizedBox(height: 16),
 
-                // Person Name
-                TextFormField(
-                  controller: _personNameController,
-                  decoration: InputDecoration(
-                    labelText: l10n.personName,
-                    border: const OutlineInputBorder(),
-                    prefixIcon: const Icon(Icons.person),
+    return BlocConsumer<LoanFormBloc, LoanFormState>(
+      listenWhen: (previous, current) =>
+          previous.isSubmitting && !current.isSubmitting,
+      listener: (context, state) {
+        // Nothing to do here - we'll handle success/failure via the LoanBloc listener
+      },
+      builder: (context, formState) {
+        return Scaffold(
+          appBar: AppBar(
+            title: Text(formState.isEditing ? l10n.editLoan : l10n.addLoan),
+          ),
+          body: BlocListener<LoanBloc, LoanState>(
+            listener: (context, loanState) {
+              if (loanState is LoanOperationSuccess) {
+                Navigator.pop(context, true);
+              } else if (loanState is LoanOperationFailure) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(loanState.message),
+                    backgroundColor: Colors.red,
                   ),
-                  validator: InputValidators.validateName,
-                ),
-                const SizedBox(height: 16),
-
-                // Amount
-                TextFormField(
-                  controller: _amountController,
-                  decoration: InputDecoration(
-                    labelText: l10n.amount,
-                    prefixText: l10n.currency,
-                    border: const OutlineInputBorder(),
-                  ),
-                  keyboardType:
-                      const TextInputType.numberWithOptions(decimal: true),
-                  validator: InputValidators.validateAmount,
-                ),
-                const SizedBox(height: 16),
-
-                // Date
-                _buildDatePicker(
-                  context,
-                  labelText: l10n.date,
-                  selectedDate: _date,
-                  onDateSelected: (date) {
-                    setState(() {
-                      _date = date;
-                    });
-                  },
-                ),
-                const SizedBox(height: 16),
-
-                // Due Date (Optional)
-                Row(
+                );
+                context.read<LoanFormBloc>().add(
+                      const SubmittingLoanFormEvent(),
+                    );
+              }
+            },
+            child: Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Form(
+                key: _formKey,
+                child: ListView(
                   children: [
-                    Expanded(
-                      child: _dueDate == null
-                          ? OutlinedButton.icon(
-                              onPressed: () async {
-                                final DateTime? picked = await showDatePicker(
-                                  context: context,
-                                  initialDate: DateTime.now()
-                                      .add(const Duration(days: 7)),
-                                  firstDate: DateTime.now(),
-                                  lastDate: DateTime(2030),
-                                );
-                                if (picked != null) {
-                                  setState(() {
-                                    _dueDate = picked;
-                                  });
-                                }
-                              },
-                              icon: const Icon(Icons.calendar_today),
-                              label: Text(l10n.dueDate),
-                            )
-                          : _buildDatePicker(
-                              context,
-                              labelText: l10n.dueDate,
-                              selectedDate: _dueDate!,
-                              onDateSelected: (date) {
-                                setState(() {
-                                  _dueDate = date;
-                                });
-                              },
-                              suffixIcon: IconButton(
-                                icon: const Icon(Icons.clear),
-                                onPressed: () {
-                                  setState(() {
-                                    _dueDate = null;
-                                  });
-                                },
-                              ),
-                            ),
+                    // Loan Type
+                    _buildLoanTypeSelector(l10n, formState),
+                    const SizedBox(height: 16),
+
+                    // Person Name
+                    TextFormField(
+                      controller: _personNameController,
+                      decoration: InputDecoration(
+                        labelText: l10n.personName,
+                        border: const OutlineInputBorder(),
+                        prefixIcon: const Icon(Icons.person),
+                      ),
+                      validator: InputValidators.validateName,
                     ),
+                    const SizedBox(height: 16),
+
+                    // Amount
+                    TextFormField(
+                      controller: _amountController,
+                      decoration: InputDecoration(
+                        labelText: l10n.amount,
+                        prefixText: l10n.currency,
+                        border: const OutlineInputBorder(),
+                      ),
+                      keyboardType:
+                          const TextInputType.numberWithOptions(decimal: true),
+                      validator: InputValidators.validateAmount,
+                    ),
+                    const SizedBox(height: 16),
+
+                    // Date
+                    _buildDatePicker(
+                      context,
+                      labelText: l10n.date,
+                      selectedDate: formState.date,
+                      onDateSelected: (date) {
+                        context.read<LoanFormBloc>().add(ChangeDateEvent(date));
+                      },
+                    ),
+                    const SizedBox(height: 16),
+
+                    // Due Date (Optional)
+                    Row(
+                      children: [
+                        Expanded(
+                          child: formState.dueDate == null
+                              ? OutlinedButton.icon(
+                                  onPressed: () async {
+                                    final DateTime? picked =
+                                        await showDatePicker(
+                                      context: context,
+                                      initialDate: DateTime.now()
+                                          .add(const Duration(days: 7)),
+                                      firstDate: DateTime.now(),
+                                      lastDate: DateTime(2030),
+                                    );
+                                    if (picked != null) {
+                                      context.read<LoanFormBloc>().add(
+                                            ChangeDueDateEvent(picked),
+                                          );
+                                    }
+                                  },
+                                  icon: const Icon(Icons.calendar_today),
+                                  label: Text(l10n.dueDate),
+                                )
+                              : _buildDatePicker(
+                                  context,
+                                  labelText: l10n.dueDate,
+                                  selectedDate: formState.dueDate!,
+                                  onDateSelected: (date) {
+                                    context.read<LoanFormBloc>().add(
+                                          ChangeDueDateEvent(date),
+                                        );
+                                  },
+                                  suffixIcon: IconButton(
+                                    icon: const Icon(Icons.clear),
+                                    onPressed: () {
+                                      context.read<LoanFormBloc>().add(
+                                            const ChangeDueDateEvent(null),
+                                          );
+                                    },
+                                  ),
+                                ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+
+                    // Description
+                    TextFormField(
+                      controller: _descriptionController,
+                      decoration: InputDecoration(
+                        labelText: l10n.description,
+                        border: const OutlineInputBorder(),
+                      ),
+                      maxLines: 3,
+                      validator: InputValidators.validateNotEmpty,
+                    ),
+                    const SizedBox(height: 16),
+
+                    // Set Reminder
+                    SwitchListTile(
+                      title: Text(l10n.setReminder),
+                      subtitle: const Text('Reminds you about this loan'),
+                      value: formState.hasReminder,
+                      onChanged: (value) {
+                        context.read<LoanFormBloc>().add(
+                              ChangeReminderStatusEvent(value),
+                            );
+                      },
+                    ),
+                    const SizedBox(height: 16),
+
+                    // Settled Status (Edit only)
+                    if (formState.isEditing)
+                      SwitchListTile(
+                        title: Text(l10n.settle),
+                        subtitle: const Text('Mark as settled'),
+                        value: formState.isSettled,
+                        onChanged: (value) {
+                          context.read<LoanFormBloc>().add(
+                                ChangeSettledStatusEvent(value),
+                              );
+                        },
+                      ),
+                    const SizedBox(height: 24),
+
+                    // Save Button
+                    ElevatedButton(
+                      onPressed:
+                          formState.isSubmitting || !formState.isFormValid
+                              ? null
+                              : _submitForm,
+                      child: formState.isSubmitting
+                          ? const CircularProgressIndicator()
+                          : Text(
+                              formState.isEditing ? l10n.save : l10n.addLoan),
+                    ),
+
+                    if (formState.isEditing) ...[
+                      const SizedBox(height: 16),
+                      // Delete Button
+                      OutlinedButton(
+                        onPressed: formState.isSubmitting ? null : _deleteLoan,
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: Colors.red,
+                        ),
+                        child: Text(l10n.delete),
+                      ),
+                    ],
                   ],
                 ),
-                const SizedBox(height: 16),
-
-                // Description
-                TextFormField(
-                  controller: _descriptionController,
-                  decoration: InputDecoration(
-                    labelText: l10n.description,
-                    border: const OutlineInputBorder(),
-                  ),
-                  maxLines: 3,
-                  validator: InputValidators.validateNotEmpty,
-                ),
-                const SizedBox(height: 16),
-
-                // Set Reminder
-                SwitchListTile(
-                  title: Text(l10n.setReminder),
-                  subtitle: Text('Reminds you about this loan'),
-                  value: _hasReminder,
-                  onChanged: (value) {
-                    setState(() {
-                      _hasReminder = value;
-                    });
-                  },
-                ),
-                const SizedBox(height: 16),
-
-                // Settled Status (Edit only)
-                if (_isEditing)
-                  SwitchListTile(
-                    title: Text(l10n.settle),
-                    subtitle: Text('Mark as settled'),
-                    value: _isSettled,
-                    onChanged: (value) {
-                      setState(() {
-                        _isSettled = value;
-                      });
-                    },
-                  ),
-                const SizedBox(height: 24),
-
-                // Save Button
-                ElevatedButton(
-                  onPressed: _isSubmitting ? null : _submitForm,
-                  child: _isSubmitting
-                      ? const CircularProgressIndicator()
-                      : Text(_isEditing ? l10n.save : l10n.addLoan),
-                ),
-
-                if (_isEditing) ...[
-                  const SizedBox(height: 16),
-                  // Delete Button
-                  OutlinedButton(
-                    onPressed: _isSubmitting ? null : _deleteLoan,
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: Colors.red,
-                    ),
-                    child: Text(l10n.delete),
-                  ),
-                ],
-              ],
+              ),
             ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 
-  Widget _buildLoanTypeSelector(AppLocalizations l10n) {
+  Widget _buildLoanTypeSelector(
+      AppLocalizations l10n, LoanFormState formState) {
     return Row(
       children: [
         Expanded(
           child: GestureDetector(
             onTap: () {
-              setState(() {
-                _type = LoanType.borrowed;
-              });
+              context.read<LoanFormBloc>().add(
+                    const ChangeLoanTypeEvent(LoanType.borrowed),
+                  );
             },
             child: Card(
-              color: _type == LoanType.borrowed
+              color: formState.type == LoanType.borrowed
                   ? Theme.of(context).colorScheme.primaryContainer
                   : null,
               child: Padding(
@@ -271,7 +315,7 @@ class _AddEditLoanPageState extends State<AddEditLoanPage> {
                   children: [
                     Icon(
                       Icons.arrow_downward,
-                      color: _type == LoanType.borrowed
+                      color: formState.type == LoanType.borrowed
                           ? Theme.of(context).colorScheme.primary
                           : Colors.grey,
                       size: 32,
@@ -280,9 +324,10 @@ class _AddEditLoanPageState extends State<AddEditLoanPage> {
                     Text(
                       l10n.borrowed,
                       style: TextStyle(
-                        fontWeight:
-                            _type == LoanType.borrowed ? FontWeight.bold : null,
-                        color: _type == LoanType.borrowed
+                        fontWeight: formState.type == LoanType.borrowed
+                            ? FontWeight.bold
+                            : null,
+                        color: formState.type == LoanType.borrowed
                             ? Theme.of(context).colorScheme.primary
                             : null,
                       ),
@@ -302,12 +347,12 @@ class _AddEditLoanPageState extends State<AddEditLoanPage> {
         Expanded(
           child: GestureDetector(
             onTap: () {
-              setState(() {
-                _type = LoanType.lent;
-              });
+              context.read<LoanFormBloc>().add(
+                    const ChangeLoanTypeEvent(LoanType.lent),
+                  );
             },
             child: Card(
-              color: _type == LoanType.lent
+              color: formState.type == LoanType.lent
                   ? Theme.of(context).colorScheme.primaryContainer
                   : null,
               child: Padding(
@@ -316,7 +361,7 @@ class _AddEditLoanPageState extends State<AddEditLoanPage> {
                   children: [
                     Icon(
                       Icons.arrow_upward,
-                      color: _type == LoanType.lent
+                      color: formState.type == LoanType.lent
                           ? Theme.of(context).colorScheme.primary
                           : Colors.grey,
                       size: 32,
@@ -325,9 +370,10 @@ class _AddEditLoanPageState extends State<AddEditLoanPage> {
                     Text(
                       l10n.lent,
                       style: TextStyle(
-                        fontWeight:
-                            _type == LoanType.lent ? FontWeight.bold : null,
-                        color: _type == LoanType.lent
+                        fontWeight: formState.type == LoanType.lent
+                            ? FontWeight.bold
+                            : null,
+                        color: formState.type == LoanType.lent
                             ? Theme.of(context).colorScheme.primary
                             : null,
                       ),
@@ -379,33 +425,14 @@ class _AddEditLoanPageState extends State<AddEditLoanPage> {
 
   void _submitForm() {
     if (_formKey.currentState!.validate()) {
-      setState(() {
-        _isSubmitting = true;
-      });
-
-      // Create loan entity
-      final loan = Loan(
-        id: _isEditing ? widget.loan!.id : const Uuid().v4(),
-        personName: _personNameController.text,
-        amount: double.parse(_amountController.text),
-        date: _date,
-        dueDate: _dueDate,
-        description: _descriptionController.text,
-        hasReminder: _hasReminder,
-        type: _type,
-        isSettled: _isSettled,
-      );
-
-      // Save or update loan
-      if (_isEditing) {
-        context.read<LoanBloc>().add(UpdateLoanEvent(loan));
-      } else {
-        context.read<LoanBloc>().add(AddLoanEvent(loan));
-      }
+      context.read<LoanFormBloc>().add(const SubmitLoanFormEvent());
     }
   }
 
   void _deleteLoan() {
+    final loanId = context.read<LoanFormBloc>().state.id;
+    if (loanId == null) return;
+
     showDialog(
       context: context,
       builder: (context) {
@@ -421,12 +448,7 @@ class _AddEditLoanPageState extends State<AddEditLoanPage> {
             TextButton(
               onPressed: () {
                 Navigator.of(context).pop();
-                setState(() {
-                  _isSubmitting = true;
-                });
-                context.read<LoanBloc>().add(
-                      DeleteLoanEvent(widget.loan!.id),
-                    );
+                context.read<LoanFormBloc>().add(DeleteLoanEvent(loanId));
               },
               child: Text(
                 l10n.delete,

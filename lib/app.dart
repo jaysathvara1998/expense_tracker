@@ -1,3 +1,9 @@
+import 'package:expanse_tracker/presentation/bloc/category_form/category_form_bloc.dart';
+import 'package:expanse_tracker/presentation/bloc/expense/filter_bloc.dart';
+import 'package:expanse_tracker/presentation/bloc/expense_form/expense_form_bloc.dart';
+import 'package:expanse_tracker/presentation/bloc/goal_form/goal_form_bloc.dart';
+import 'package:expanse_tracker/presentation/bloc/loan_form/loan_form_bloc.dart';
+import 'package:expanse_tracker/presentation/bloc/navigation/navigation_bloc.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_gen/gen_l10n/app_localizations.dart';
@@ -39,6 +45,24 @@ class App extends StatelessWidget {
         ),
         BlocProvider<DashboardBloc>(
           create: (_) => di.sl<DashboardBloc>(),
+        ),
+        BlocProvider<NavigationBloc>(
+          create: (_) => di.sl<NavigationBloc>(),
+        ),
+        BlocProvider<CategoryFormBloc>(
+          create: (_) => di.sl<CategoryFormBloc>(),
+        ),
+        BlocProvider<ExpenseFormBloc>(
+          create: (_) => di.sl<ExpenseFormBloc>(),
+        ),
+        BlocProvider<LoanFormBloc>(
+          create: (_) => di.sl<LoanFormBloc>(),
+        ),
+        BlocProvider<FilterBloc>(
+          create: (_) => di.sl<FilterBloc>(),
+        ),
+        BlocProvider<GoalFormBloc>(
+          create: (_) => di.sl<GoalFormBloc>(),
         ),
       ],
       child: BlocBuilder<AppSettingsBloc, AppSettingsState>(

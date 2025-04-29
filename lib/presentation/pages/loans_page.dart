@@ -1,4 +1,5 @@
 // lib/presentation/pages/loans_page.dart
+import 'package:expanse_tracker/presentation/pages/add_edit_loan_page.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_gen/gen_l10n/app_localizations.dart';
@@ -8,7 +9,6 @@ import '../bloc/loan/loan_bloc.dart';
 import '../bloc/loan/loan_event.dart';
 import '../bloc/loan/loan_state.dart';
 import '../widgets/loan_list_item.dart';
-import 'add_edit_loan_page.dart';
 
 class LoansPage extends StatefulWidget {
   const LoansPage({Key? key}) : super(key: key);

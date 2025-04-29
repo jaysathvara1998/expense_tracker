@@ -1,20 +1,24 @@
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_gen/gen_l10n/app_localizations.dart';
 
 import '../../../core/util/date_time_utils.dart';
 import '../../../domain/entities/category.dart';
 import '../../../domain/entities/expense.dart';
+import '../bloc/chart/chart_bloc.dart';
+import '../bloc/chart/chart_event.dart';
+import '../bloc/chart/chart_state.dart';
 
 class MonthlyExpenseBarChart extends StatelessWidget {
   final List<Expense> expenses;
   final DateTime month;
 
   const MonthlyExpenseBarChart({
-    Key? key,
+    super.key,
     required this.expenses,
     required this.month,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -168,82 +172,94 @@ class MonthlyExpenseBarChart extends StatelessWidget {
   }
 }
 
-class CategoryPieChart extends StatefulWidget {
+class CategoryPieChart extends StatelessWidget {
   final Map<Category, double> expensesByCategory;
 
   const CategoryPieChart({
-    Key? key,
+    super.key,
     required this.expensesByCategory,
-  }) : super(key: key);
+  });
 
   @override
-  State<CategoryPieChart> createState() => _CategoryPieChartState();
+  Widget build(BuildContext context) {
+    return BlocProvider(
+      create: (context) => ChartBloc(),
+      child: _CategoryPieChartView(expensesByCategory: expensesByCategory),
+    );
+  }
 }
 
-class _CategoryPieChartState extends State<CategoryPieChart> {
-  int touchedIndex = -1;
+class _CategoryPieChartView extends StatelessWidget {
+  final Map<Category, double> expensesByCategory;
+
+  const _CategoryPieChartView({
+    required this.expensesByCategory,
+  });
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-          child: Text(
-            l10n.byCategory,
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.bold,
-                ),
-          ),
-        ),
-        SizedBox(
-          height: 240,
-          child: Row(
-            children: [
-              Expanded(
-                child: PieChart(
-                  PieChartData(
-                    pieTouchData: PieTouchData(
-                      touchCallback: (FlTouchEvent event, pieTouchResponse) {
-                        setState(() {
-                          if (!event.isInterestedForInteractions ||
-                              pieTouchResponse == null ||
-                              pieTouchResponse.touchedSection == null) {
-                            touchedIndex = -1;
-                            return;
-                          }
-                          touchedIndex = pieTouchResponse
-                              .touchedSection!.touchedSectionIndex;
-                        });
-                      },
+    return BlocBuilder<ChartBloc, ChartState>(
+      builder: (context, chartState) {
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+              child: Text(
+                l10n.byCategory,
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.bold,
                     ),
-                    borderData: FlBorderData(show: false),
-                    sectionsSpace: 2,
-                    centerSpaceRadius: 40,
-                    sections: _createPieChartSections(),
+              ),
+            ),
+            SizedBox(
+              height: 240,
+              child: Row(
+                children: [
+                  Expanded(
+                    child: PieChart(
+                      PieChartData(
+                        pieTouchData: PieTouchData(
+                          touchCallback:
+                              (FlTouchEvent event, pieTouchResponse) {
+                            context.read<ChartBloc>().add(
+                                  PieChartTouchEvent(
+                                    touchEvent: event,
+                                    touchResponse: pieTouchResponse,
+                                  ),
+                                );
+                          },
+                        ),
+                        borderData: FlBorderData(show: false),
+                        sectionsSpace: 2,
+                        centerSpaceRadius: 40,
+                        sections: _createPieChartSections(
+                            chartState.touchedPieChartIndex),
+                      ),
+                    ),
                   ),
-                ),
+                  Expanded(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                      child: _buildLegend(context),
+                    ),
+                  ),
+                ],
               ),
-              Expanded(
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                  child: _buildLegend(),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
+            ),
+          ],
+        );
+      },
     );
   }
 
-  List<PieChartSectionData> _createPieChartSections() {
-    final total = widget.expensesByCategory.values.fold(0.0, (a, b) => a + b);
+  List<PieChartSectionData> _createPieChartSections(int touchedIndex) {
+    final total = expensesByCategory.values.fold(0.0, (a, b) => a + b);
 
-    if (widget.expensesByCategory.isEmpty) {
+    if (expensesByCategory.isEmpty) {
       return [
         PieChartSectionData(
           color: Colors.grey,
@@ -259,10 +275,10 @@ class _CategoryPieChartState extends State<CategoryPieChart> {
       ];
     }
 
-    return widget.expensesByCategory.entries.map((entry) {
+    return expensesByCategory.entries.map((entry) {
       final category = entry.key;
       final amount = entry.value;
-      final index = widget.expensesByCategory.keys.toList().indexOf(category);
+      final index = expensesByCategory.keys.toList().indexOf(category);
       final isTouched = index == touchedIndex;
       final percentage = (amount / total * 100).toStringAsFixed(1);
 
@@ -280,9 +296,9 @@ class _CategoryPieChartState extends State<CategoryPieChart> {
     }).toList();
   }
 
-  Widget _buildLegend() {
+  Widget _buildLegend(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final total = widget.expensesByCategory.values.fold(0.0, (a, b) => a + b);
+    final total = expensesByCategory.values.fold(0.0, (a, b) => a + b);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -299,7 +315,7 @@ class _CategoryPieChartState extends State<CategoryPieChart> {
         Expanded(
           child: SingleChildScrollView(
             child: Column(
-              children: widget.expensesByCategory.entries.map((entry) {
+              children: expensesByCategory.entries.map((entry) {
                 final category = entry.key;
                 final amount = entry.value;
                 final percentage = (amount / total * 100).toStringAsFixed(1);
